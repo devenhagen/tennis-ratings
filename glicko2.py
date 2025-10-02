@@ -29,7 +29,7 @@ class Player:
     # Class attribute
     # The system constant, which constrains
     # the change in volatility over time.
-    _tau = 0.5
+    _tau = 0.75
 
     def getRating(self):
         return (self.__rating * 173.7178) + 1500 
@@ -88,6 +88,7 @@ class Player:
         self.__rating += math.pow(self.__rd, 2) * tempSum
         
         
+        
     def _newVol(self, rating_list, RD_list, outcome_list, v):
         """ Calculating the new volatility as per the Glicko2 system.
         
@@ -120,6 +121,9 @@ class Player:
                 return self.vol
 
         return math.exp(x1 / 2)
+        
+        
+        
         
     def _delta(self, rating_list, RD_list, outcome_list, v):
         """ The delta function of the Glicko2 system.
@@ -170,5 +174,5 @@ class Player:
         """
         self.periods_inactive += 1
         self._preRatingRD()
-        if self.periods_inactive>=2:
-            self.__rating = self.__rating * 0.99**(self.periods_inactive-1)
+        #if self.periods_inactive>=4:
+        #    self.__rating = self.__rating * (0.99)**(self.periods_inactive//4)

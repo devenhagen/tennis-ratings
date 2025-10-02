@@ -1,7 +1,9 @@
 import csv
 import glicko2
-from datetime import date
+from datetime import date, timedelta
 import math
+import random
+from collections import defaultdict
 
 
 players_overall = dict()
@@ -12,12 +14,14 @@ players_grass = dict()
 
 matches = []
 
+
+
 def period(s):
     m,d,y = s.split("/")
 
     d = date(int(y),int(m),int(d))
     start = date(2002,12,30)
-    return ((d-start).days)//14
+    return ((d-start).days)//7
 
 
 tournaments = []
@@ -32,12 +36,13 @@ with open("atp_tennis_weekly.csv") as f:
             "p1": line[7].strip(),
             "p2": line[8].strip(),
             "winner": line[9].strip(),
+            "date": line[1].strip(),
             "period": period(line[1]),
             "tourney": line[0].strip() + (line[1].strip())[:4]
         }
         matches.append(m)
 
-NUM_PERIODS = (((date(2025,9,30)-date(2002,12,30)).days)//14)+1
+NUM_PERIODS = (((date(2025,9,30)-date(2002,12,30)).days)//7)+1
 for pd in range(NUM_PERIODS):
     if pd % 50 == 0:
         print("Period", pd) 
@@ -75,6 +80,7 @@ for pd in range(NUM_PERIODS):
                 players_hard[p1] = glicko2.Player()
             if p2 not in players_hard:
                 players_hard[p2] = glicko2.Player()
+
         if match["surface"] == "Clay":
             played_clay.add(p1)
             played_clay.add(p2)
@@ -83,6 +89,7 @@ for pd in range(NUM_PERIODS):
                 players_clay[p1] = glicko2.Player()
             if p2 not in players_clay:
                 players_clay[p2] = glicko2.Player()
+
         if match["surface"] == "Grass":
             played_grass.add(p1)
             played_grass.add(p2)
@@ -91,37 +98,47 @@ for pd in range(NUM_PERIODS):
                 players_grass[p1] = glicko2.Player()
             if p2 not in players_grass:
                 players_grass[p2] = glicko2.Player()
+                
     
-    temp_players_overall = players_overall.copy()
-    temp_players_hard = players_hard.copy()
-    temp_players_clay = players_clay.copy()
-    temp_players_grass = players_grass.copy()
-
-    for player_str,player in temp_players_overall.items():
+    # Collect all match data for each player before updating any ratings
+    player_match_data = {}
+    for player_str in players_overall:
         if player_str in played:
             players_matches = [m for m in period_matches if m["p1"] == player_str or m["p2"] == player_str]
             players_opponent_ratings = []
             players_opponent_RDs = []
             players_results = []
+            match_weights = []
             for m in players_matches:
                 if player_str == m["p1"]:
+                    # Use current ratings (before any updates in this period)
                     players_opponent_ratings.append(players_overall[m["p2"]].rating)
                     players_opponent_RDs.append(players_overall[m["p2"]].rd)
                 else:
                     players_opponent_ratings.append(players_overall[m["p1"]].rating)
                     players_opponent_RDs.append(players_overall[m["p1"]].rd)
                 players_results.append(int(m["winner"]==player_str))
-            player.update_player(players_opponent_ratings, players_opponent_RDs, players_results)
+                
+                    
+            player_match_data[player_str] = (players_opponent_ratings, players_opponent_RDs, players_results)
+    
+    # Now update all players simultaneously using the collected data
+    for player_str, player in players_overall.items():
+        if player_str in played:
+            opponent_ratings, opponent_RDs, results = player_match_data[player_str]
+            player.update_player(opponent_ratings, opponent_RDs, results)
         else:
             player.did_not_compete()
-    players_overall = temp_players_overall
     
-    for s_players_overall,s_temp_players_overall,s_period_matches,s_played in (
-        (players_hard, temp_players_hard, period_matches_hard, played_hard), 
-        (players_clay, temp_players_clay, period_matches_clay, played_clay), 
-        (players_grass, temp_players_grass, period_matches_grass, played_grass)
+    # Handle surface-specific ratings with the same simultaneous update approach
+    for s_players_overall, s_period_matches, s_played, surface_name in (
+        (players_hard, period_matches_hard, played_hard, "Hard"), 
+        (players_clay, period_matches_clay, played_clay, "Clay"), 
+        (players_grass, period_matches_grass, played_grass, "Grass")
     ):
-        for player_str,player in s_temp_players_overall.items():
+        # Collect all match data for each player before updating any ratings
+        s_player_match_data = {}
+        for player_str in s_players_overall:
             if player_str in s_played:
                 players_matches = [m for m in s_period_matches if m["p1"] == player_str or m["p2"] == player_str]
                 players_opponent_ratings = []
@@ -129,18 +146,55 @@ for pd in range(NUM_PERIODS):
                 players_results = []
                 for m in players_matches:
                     if player_str == m["p1"]:
+                        # Use current ratings (before any updates in this period)
                         players_opponent_ratings.append(s_players_overall[m["p2"]].rating)
                         players_opponent_RDs.append(s_players_overall[m["p2"]].rd)
                     else:
                         players_opponent_ratings.append(s_players_overall[m["p1"]].rating)
                         players_opponent_RDs.append(s_players_overall[m["p1"]].rd)
                     players_results.append(int(m["winner"]==player_str))
-                player.update_player(players_opponent_ratings, players_opponent_RDs, players_results)
+                        
+                s_player_match_data[player_str] = (players_opponent_ratings, players_opponent_RDs, players_results)
+        
+        # Now update all players simultaneously using the collected data
+        for player_str, player in s_players_overall.items():
+            if player_str in s_played:
+                opponent_ratings, opponent_RDs, results = s_player_match_data[player_str]
+                player.update_player(opponent_ratings, opponent_RDs, results)
             else:
                 player.did_not_compete()
-        s_players_overall = s_temp_players_overall
+        
     
 import math
+
+def get_active_players():
+    """Get players who have played in the last year (365 days)."""
+    from datetime import date, timedelta
+    
+    # Calculate cutoff date (1 year ago)
+    cutoff_date = date.today() - timedelta(days=365)
+    
+    # Track last activity for each player
+    player_last_activity = {}
+    
+    for match in matches:
+        # Parse date from MM/DD/YYYY format
+        date_parts = match["date"].split("/")
+        match_date = date(int(date_parts[2]), int(date_parts[0]), int(date_parts[1]))
+        
+        for player in [match["p1"], match["p2"]]:
+            if player not in player_last_activity:
+                player_last_activity[player] = match_date
+            else:
+                player_last_activity[player] = max(player_last_activity[player], match_date)
+    
+    # Return only players who have played in the last year
+    active_players = set()
+    for player, last_activity in player_last_activity.items():
+        if last_activity >= cutoff_date:
+            active_players.add(player)
+    
+    return active_players
 
 def glicko2_win_prob(p1_rating, p1_rd, p2_rating, p2_rd):
     # Convert to internal scale
@@ -149,41 +203,49 @@ def glicko2_win_prob(p1_rating, p1_rd, p2_rating, p2_rd):
     phi1 = p1_rd / 173.7178
     phi2 = p2_rd / 173.7178
     
-    # Combined uncertainty
-    combined_rd = math.sqrt(phi1**2 + phi2**2)
-    
-    # Glicko-2 g function
-    g = 1.0 / math.sqrt(1.0 + 3.0 * (combined_rd ** 2) / (math.pi ** 2))
+    # Glicko-2 g function - use only opponent's RD (phi2), not combined
+    g = 1.0 / math.sqrt(1.0 + 3.0 * (phi2 ** 2) / (math.pi ** 2))
     
     # Expected outcome formula from the document
     return 1.0 / (1.0 + math.exp(-g * (mu1 - mu2)))
 
 
 
-print("\n=== TOP PLAYERS (Overall) ===")
-top_players = sorted(players_overall.items(), key=lambda x: x[1].rating, reverse=True)
-for i, (name, player) in enumerate(top_players[:50]):  # Top 20
+# Get active players (played in last year)
+active_players = get_active_players()
+
+print("\n=== TOP PLAYERS (Overall) - Active Only ===")
+# Filter to only active players
+active_overall_players = {name: player for name, player in players_overall.items() if name in active_players}
+top_players = sorted(active_overall_players.items(), key=lambda x: x[1].rating, reverse=True)
+for i, (name, player) in enumerate(top_players[:50]):  # Top 50
     print(f"{i+1:2d}. {name:<20} Rating: {player.rating:.1f} RD: {player.rd:.1f}")
 
-alc_rating = top_players[0][1].rating
-alc_rd = top_players[0][1].rd
-sin_rating = top_players[2][1].rating
-sin_rd = top_players[2][1].rd
-
-p1_rating = players_overall["Van De Zandschulp B."].rating
-p1_rd = players_overall["Van De Zandschulp B."].rd
-p2_rating = players_overall["Borges N."].rating
-p2_rd = players_overall["Borges N."].rd
-
-print(glicko2_win_prob(p1_rating,p1_rd,p2_rating,p2_rd))
+print(f"\nTotal active players: {len(active_players)}")
+print(f"Total players in system: {len(players_overall)}")
+print(f"Filtered out: {len(players_overall) - len(active_players)} inactive players")
 
 
-'''
-# Print top players by surface
+
+
+# Print top players by surface (active only) - Regularized Surface Ratings
 for surface_name, surface_dict in [("Hard", players_hard), ("Clay", players_clay), ("Grass", players_grass)]:
     if surface_dict:  # Only if surface has players
-        print(f"\n=== TOP PLAYERS ({surface_name}) ===")
-        top_surface = sorted(surface_dict.items(), key=lambda x: x[1].rating, reverse=True)
-        for i, (name, player) in enumerate(top_surface[:10]):  # Top 10 per surface
-            print(f"{i+1:2d}. {name:<20} Rating: {player.rating:.1f} RD: {player.rd:.1f}")
-'''
+        # Filter to only active players
+        active_surface_players = {name: player for name, player in surface_dict.items() if name in active_players}
+        if active_surface_players:  # Only show if there are active players
+            print(f"\n=== TOP PLAYERS ({surface_name}) - Surface Ratings ===")
+            
+            # Show regularized surface ratings with comparison to global
+            surface_ratings = []
+            for name, surface_player in active_surface_players.items():
+                surface_ratings.append((name, surface_player.rating, surface_player.rd))
+            
+            # Sort by surface rating
+            surface_ratings.sort(key=lambda x: x[1], reverse=True)
+            
+            for i, (name, surface_rating, surface_rd) in enumerate(surface_ratings[:10]):  # Top 10 per surface
+                print(f"{i+1:2d}. {name:<20} Rating: {surface_rating:.1f} RD: {surface_rd:.1f}")
+            print(f"Active {surface_name} players: {len(active_surface_players)}")
+
+
