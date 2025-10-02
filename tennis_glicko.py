@@ -170,10 +170,10 @@ alc_rd = top_players[0][1].rd
 sin_rating = top_players[2][1].rating
 sin_rd = top_players[2][1].rd
 
-p1_rating = players_overall["Alcaraz C."].rating
-p1_rd = players_overall["Alcaraz C."].rd
-p2_rating = players_overall["Sinner J."].rating
-p2_rd = players_overall["Sinner J."].rd
+p1_rating = players_overall["Van De Zandschulp B."].rating
+p1_rd = players_overall["Van De Zandschulp B."].rd
+p2_rating = players_overall["Borges N."].rating
+p2_rd = players_overall["Borges N."].rd
 
 print(glicko2_win_prob(p1_rating,p1_rd,p2_rating,p2_rd))
 
