@@ -217,6 +217,20 @@ def get_active_players():
     
     return active_players
 
+def get_players_with_min_matches_2025(min_matches=15):
+    """Get players who have played at least min_matches in 2025"""
+    # Count matches per player in 2025
+    player_match_counts = defaultdict(int)
+    
+    for match in matches:
+        # Check if match is in 2025
+        if "2025" in match["date"]:
+            player_match_counts[match["p1"]] += 1
+            player_match_counts[match["p2"]] += 1
+    
+    # Return players with at least min_matches
+    return {player for player, count in player_match_counts.items() if count >= min_matches}
+
 def glicko2_win_prob(p1_rating, p1_rd, p2_rating, p2_rd):
     """
     Calculate expected outcome using the Glicko formula:
@@ -249,16 +263,21 @@ p2_rd = players_overall["Cobolli F."].rd
 # Get active players (played in last year)
 active_players = get_active_players()
 
-print("\n=== TOP PLAYERS (Overall) - Active Only ===")
-# Filter to only active players
-active_overall_players = {name: player for name, player in players_overall.items() if name in active_players}
+# Get players with at least 15 matches in 2025
+players_2025_15plus = get_players_with_min_matches_2025(15)
+
+print("\n=== TOP PLAYERS (Overall) - Active Only (15+ matches in 2025) ===")
+# Filter to only active players with 15+ matches in 2025
+active_overall_players = {name: player for name, player in players_overall.items() 
+                          if name in active_players and name in players_2025_15plus}
 top_players = sorted(active_overall_players.items(), key=lambda x: x[1].rating, reverse=True)
-for i, (name, player) in enumerate(top_players[:50]):  # Top 50
+for i, (name, player) in enumerate(top_players[:100]):  # Top 50
     print(f"{i+1:2d}. {name:<20} Rating: {player.rating:.1f} RD: {player.rd:.1f}")
 
 print(f"\nTotal active players: {len(active_players)}")
+print(f"Players with 15+ matches in 2025: {len(players_2025_15plus)}")
 print(f"Total players in system: {len(players_overall)}")
-print(f"Filtered out: {len(players_overall) - len(active_players)} inactive players")
+print(f"Filtered out: {len(players_overall) - len(active_overall_players)} inactive players or insufficient 2025 matches")
 
 
 
@@ -266,8 +285,9 @@ print(f"Filtered out: {len(players_overall) - len(active_players)} inactive play
 # Print top players by surface (active only) - Regularized Surface Ratings
 for surface_name, surface_dict in [("Hard", players_hard), ("Clay", players_clay), ("Grass", players_grass)]:
     if surface_dict:  # Only if surface has players
-        # Filter to only active players
-        active_surface_players = {name: player for name, player in surface_dict.items() if name in active_players}
+        # Filter to only active players with 15+ matches in 2025
+        active_surface_players = {name: player for name, player in surface_dict.items() 
+                                 if name in active_players and name in players_2025_15plus}
         if active_surface_players:  # Only show if there are active players
             print(f"\n=== TOP PLAYERS ({surface_name}) - Bounded Blend Surface Ratings ===")
             
@@ -286,7 +306,7 @@ for surface_name, surface_dict in [("Hard", players_hard), ("Clay", players_clay
             # Sort by surface rating
             surface_ratings.sort(key=lambda x: x[1], reverse=True)
             
-            for i, (name, surface_rating, surface_rd, global_rating, global_rd, rating_diff, rd_diff) in enumerate(surface_ratings[:10]):  # Top 10 per surface
+            for i, (name, surface_rating, surface_rd, global_rating, global_rd, rating_diff, rd_diff) in enumerate(surface_ratings[:20]):  # Top 10 per surface
                 # Show surface rating with difference from global
                 diff_str = f"({rating_diff:+.1f})" if abs(rating_diff) > 5 else "(~)"
                 print(f"{i+1:2d}. {name:<20} Surface: {surface_rating:.1f}±{surface_rd:.1f} {diff_str} | Global: {global_rating:.1f}±{global_rd:.1f}")
